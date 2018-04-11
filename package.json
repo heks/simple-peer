@@ -1,14 +1,9 @@
 {
-  "name": "simple-peer",
+  "name": "@detox/simple-peer",
   "description": "Simple one-to-one WebRTC video/voice and data channels",
   "version": "9.1.2",
-  "author": {
-    "name": "Feross Aboukhadijeh",
-    "email": "feross@feross.org",
-    "url": "http://feross.org/"
-  },
   "bugs": {
-    "url": "https://github.com/feross/simple-peer/issues"
+    "url": "https://github.com/Detox/simple-peer/issues"
   },
   "dependencies": {
     "debug": "^3.1.0",
@@ -54,7 +49,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git://github.com/feross/simple-peer.git"
+    "url": "git://github.com/Detox/simple-peer.git"
   },
   "scripts": {
     "build": "browserify -s SimplePeer -r ./ | minify > simplepeer.min.js",
