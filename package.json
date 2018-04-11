@@ -12,9 +12,9 @@
   },
   "dependencies": {
     "debug": "^3.1.0",
+    "eventemitter3": "^3.1.0",
     "get-browser-rtc": "^1.0.0",
-    "inherits": "^2.0.1",
-    "readable-stream": "^2.3.4"
+    "inherits": "^2.0.1"
   },
   "devDependencies": {
     "airtap": "0.0.5",

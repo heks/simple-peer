@@ -1,14 +1,14 @@
 module.exports = Peer
 
 var debug = require('debug')('simple-peer')
+var EventEmitter = require('eventemitter3')
 var getBrowserRTC = require('get-browser-rtc')
 var inherits = require('inherits')
 var randombytes = require('./lib/randombytes')
-var stream = require('readable-stream')
 
 var MAX_BUFFERED_AMOUNT = 64 * 1024
 
-inherits(Peer, stream.Duplex)
+inherits(Peer, EventEmitter)
 
 /**
  * @param {Uint8Array} array
@@ -34,11 +34,7 @@ function Peer (opts) {
   self._id = randombytes(4).toString('hex').slice(0, 7)
   self._debug('new peer %o', opts)
 
-  opts = Object.assign({
-    allowHalfOpen: false
-  }, opts)
-
-  stream.Duplex.call(self, opts)
+  EventEmitter.call(self)
 
   self.channelName = opts.initiator
     ? opts.channelName || array2hex(randombytes(20))
@@ -146,11 +142,6 @@ function Peer (opts) {
   if (self.initiator) {
     self._needsNegotiation()
   }
-
-  self._onFinishBound = function () {
-    self._onFinish()
-  }
-  self.once('finish', self._onFinishBound)
 }
 
 Peer.WEBRTC_SUPPORT = !!getBrowserRTC()
@@ -348,24 +339,11 @@ Peer.prototype.negotiate = function () {
   self._isNegotiating = true
 }
 
-// TODO: Delete this method once readable-stream is updated to contain a default
-// implementation of destroy() that automatically calls _destroy()
-// See: https://github.com/nodejs/readable-stream/issues/283
 Peer.prototype.destroy = function (err) {
-  var self = this
-  self._destroy(err, function () {})
-}
-
-Peer.prototype._destroy = function (err, cb) {
   var self = this
   if (self.destroyed) return
 
   self._debug('destroy (error: %s)', err && (err.message || err))
-
-  self.readable = self.writable = false
-
-  if (!self._readableState.ended) self.push(null)
-  if (!self._writableState.finished) self.end()
 
   self.destroyed = true
   self.connected = false
@@ -379,9 +357,6 @@ Peer.prototype._destroy = function (err, cb) {
   self._interval = null
   self._chunk = null
   self._cb = null
-
-  if (self._onFinishBound) self.removeListener('finish', self._onFinishBound)
-  self._onFinishBound = null
 
   if (self._channel) {
     try {
@@ -412,7 +387,6 @@ Peer.prototype._destroy = function (err, cb) {
 
   if (err) self.emit('error', err)
   self.emit('close')
-  cb()
 }
 
 Peer.prototype._setupData = function (event) {
@@ -447,52 +421,6 @@ Peer.prototype._setupData = function (event) {
   }
   self._channel.onerror = function (err) {
     self.destroy(makeError(err, 'ERR_DATA_CHANNEL'))
-  }
-}
-
-Peer.prototype._read = function () {}
-
-Peer.prototype._write = function (chunk, encoding, cb) {
-  var self = this
-  if (self.destroyed) return cb(makeError('cannot write after peer is destroyed', 'ERR_DATA_CHANNEL'))
-
-  if (self.connected) {
-    try {
-      self.send(chunk)
-    } catch (err) {
-      return self.destroy(makeError(err, 'ERR_DATA_CHANNEL'))
-    }
-    if (self._channel.bufferedAmount > MAX_BUFFERED_AMOUNT) {
-      self._debug('start backpressure: bufferedAmount %d', self._channel.bufferedAmount)
-      self._cb = cb
-    } else {
-      cb(null)
-    }
-  } else {
-    self._debug('write before connect')
-    self._chunk = chunk
-    self._cb = cb
-  }
-}
-
-// When stream finishes writing, close socket. Half open connections are not
-// supported.
-Peer.prototype._onFinish = function () {
-  var self = this
-  if (self.destroyed) return
-
-  if (self.connected) {
-    destroySoon()
-  } else {
-    self.once('connect', destroySoon)
-  }
-
-  // Wait a bit before destroying so the socket flushes.
-  // TODO: is there a more reliable way to accomplish this?
-  function destroySoon () {
-    setTimeout(function () {
-      self.destroy()
-    }, 1000)
   }
 }
 
@@ -824,7 +752,7 @@ Peer.prototype._onChannelMessage = function (event) {
   if (self.destroyed) return
   var data = event.data
   if (data instanceof ArrayBuffer) data = new Uint8Array(data)
-  self.push(data)
+  self.emit('data', data)
 }
 
 Peer.prototype._onChannelBufferedAmountLow = function () {
