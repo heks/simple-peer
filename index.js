@@ -1,8 +1,6 @@
 module.exports = Peer
 
-var debug = require('debug')('simple-peer')
 var EventEmitter = require('eventemitter3')
-var getBrowserRTC = require('get-browser-rtc')
 var inherits = require('inherits')
 var randombytes = require('./lib/randombytes')
 
@@ -30,9 +28,6 @@ function array2hex (array) {
 function Peer (opts) {
   var self = this
   if (!(self instanceof Peer)) return new Peer(opts)
-
-  self._id = randombytes(4).toString('hex').slice(0, 7)
-  self._debug('new peer %o', opts)
 
   EventEmitter.call(self)
 
@@ -64,15 +59,7 @@ function Peer (opts) {
 
   self._wrtc = (opts.wrtc && typeof opts.wrtc === 'object')
     ? opts.wrtc
-    : getBrowserRTC()
-
-  if (!self._wrtc) {
-    if (typeof window === 'undefined') {
-      throw makeError('No WebRTC support: Specify `opts.wrtc` option in this environment', 'ERR_WEBRTC_SUPPORT')
-    } else {
-      throw makeError('No WebRTC support: Not a supported browser', 'ERR_WEBRTC_SUPPORT')
-    }
-  }
+    : window
 
   self._pcReady = false
   self._channelReady = false
@@ -144,8 +131,6 @@ function Peer (opts) {
   }
 }
 
-Peer.WEBRTC_SUPPORT = !!getBrowserRTC()
-
 /**
  * Expose config, constraints, and data channel config for overriding all Peer
  * instances. Otherwise, just set opts.config, opts.constraints, or opts.channelConfig
@@ -186,10 +171,8 @@ Peer.prototype.signal = function (data) {
       data = {}
     }
   }
-  self._debug('signal()')
 
   if (data.renegotiate) {
-    self._debug('got request to renegotiate')
     self._needsNegotiation()
   }
   if (data.candidate) {
@@ -242,8 +225,6 @@ Peer.prototype.send = function (chunk) {
 Peer.prototype.addStream = function (stream) {
   var self = this
 
-  self._debug('addStream()')
-
   stream.getTracks().forEach(function (track) {
     self.addTrack(track, stream)
   })
@@ -256,8 +237,6 @@ Peer.prototype.addStream = function (stream) {
  */
 Peer.prototype.addTrack = function (track, stream) {
   var self = this
-
-  self._debug('addTrack()')
 
   var sender = self._pc.addTrack(track, stream)
   var submap = self._senderMap.get(track) || new WeakMap() // nested WeakMaps map [track, stream] to sender
@@ -273,8 +252,6 @@ Peer.prototype.addTrack = function (track, stream) {
  */
 Peer.prototype.removeTrack = function (track, stream) {
   var self = this
-
-  self._debug('removeSender()')
 
   var submap = self._senderMap.get(track)
   var sender = submap ? submap.get(stream) : null
@@ -299,8 +276,6 @@ Peer.prototype.removeTrack = function (track, stream) {
 Peer.prototype.removeStream = function (stream) {
   var self = this
 
-  self._debug('removeSenders()')
-
   stream.getTracks().forEach(function (track) {
     self.removeTrack(track, stream)
   })
@@ -309,12 +284,10 @@ Peer.prototype.removeStream = function (stream) {
 Peer.prototype._needsNegotiation = function () {
   var self = this
 
-  self._debug('_needsNegotiation')
   if (self._batchedNegotiation) return // batch synchronous renegotiations
   self._batchedNegotiation = true
   setTimeout(function () {
     self._batchedNegotiation = false
-    self._debug('starting batched negotiation')
     self.negotiate()
   }, 0)
 }
@@ -325,13 +298,10 @@ Peer.prototype.negotiate = function () {
   if (self.initiator) {
     if (self._isNegotiating) {
       self._queuedNegotiation = true
-      self._debug('already negotiating, queueing')
     } else {
-      self._debug('start negotiation')
       self._createOffer()
     }
   } else {
-    self._debug('requesting negotiation from initiator')
     self.emit('signal', { // request initiator to renegotiate
       renegotiate: true
     })
@@ -342,8 +312,6 @@ Peer.prototype.negotiate = function () {
 Peer.prototype.destroy = function (err) {
   var self = this
   if (self.destroyed) return
-
-  self._debug('destroy (error: %s)', err && (err.message || err))
 
   self.destroyed = true
   self.connected = false
@@ -434,7 +402,6 @@ Peer.prototype._createOffer = function () {
     self._pc.setLocalDescription(offer, onSuccess, onError)
 
     function onSuccess () {
-      self._debug('createOffer success')
       if (self.destroyed) return
       if (self.trickle || self._iceComplete) sendOffer()
       else self.once('_iceComplete', sendOffer) // wait for candidates
@@ -446,7 +413,6 @@ Peer.prototype._createOffer = function () {
 
     function sendOffer () {
       var signal = self._pc.localDescription || offer
-      self._debug('signal')
       self.emit('signal', {
         type: signal.type,
         sdp: signal.sdp
@@ -476,7 +442,6 @@ Peer.prototype._createAnswer = function () {
 
     function sendAnswer () {
       var signal = self._pc.localDescription || answer
-      self._debug('signal')
       self.emit('signal', {
         type: signal.type,
         sdp: signal.sdp
@@ -491,11 +456,6 @@ Peer.prototype._onIceStateChange = function () {
   var iceConnectionState = self._pc.iceConnectionState
   var iceGatheringState = self._pc.iceGatheringState
 
-  self._debug(
-    'iceStateChange (connection: %s) (gathering: %s)',
-    iceConnectionState,
-    iceGatheringState
-  )
   self.emit('iceStateChange', iceConnectionState, iceGatheringState)
 
   if (iceConnectionState === 'connected' || iceConnectionState === 'completed') {
@@ -562,7 +522,6 @@ Peer.prototype.getStats = function (cb) {
 
 Peer.prototype._maybeReady = function () {
   var self = this
-  self._debug('maybeReady pc %s channel %s', self._pcReady, self._channelReady)
   if (self.connected || self._connecting || !self._pcReady || !self._channelReady) return
 
   self._connecting = true
@@ -648,11 +607,6 @@ Peer.prototype._maybeReady = function () {
           self.remotePort = Number(remote[1])
         }
         self.remoteFamily = 'IPv4'
-
-        self._debug(
-          'connect local: %s:%s remote: %s:%s',
-          self.localAddress, self.localPort, self.remoteAddress, self.remotePort
-        )
       }
 
       // Ignore candidate pair selection in browsers like Safari 11 that do not have any local or remote candidates
@@ -672,7 +626,6 @@ Peer.prototype._maybeReady = function () {
           return self.destroy(makeError(err, 'ERR_DATA_CHANNEL'))
         }
         self._chunk = null
-        self._debug('sent chunk from "write before connect"')
 
         var cb = self._cb
         self._cb = null
@@ -686,7 +639,6 @@ Peer.prototype._maybeReady = function () {
         if (self._interval.unref) self._interval.unref()
       }
 
-      self._debug('connect')
       self.emit('connect')
     })
   }
@@ -709,7 +661,6 @@ Peer.prototype._onSignalingStateChange = function () {
     self._isNegotiating = false
 
     // HACK: Firefox doesn't yet support removing tracks when signalingState !== 'stable'
-    self._debug('flushing sender queue', self._sendersAwaitingStable)
     self._sendersAwaitingStable.forEach(function (sender) {
       self.removeTrack(sender)
       self._queuedNegotiation = true
@@ -717,16 +668,13 @@ Peer.prototype._onSignalingStateChange = function () {
     self._sendersAwaitingStable = []
 
     if (self._queuedNegotiation) {
-      self._debug('flushing negotiation queue')
       self._queuedNegotiation = false
       self._needsNegotiation() // negotiate again
     }
 
-    self._debug('negotiate')
     self.emit('negotiate')
   }
 
-  self._debug('signalingStateChange %s', self._pc.signalingState)
   self.emit('signalingStateChange', self._pc.signalingState)
 }
 
@@ -758,7 +706,6 @@ Peer.prototype._onChannelMessage = function (event) {
 Peer.prototype._onChannelBufferedAmountLow = function () {
   var self = this
   if (self.destroyed || !self._cb) return
-  self._debug('ending backpressure: bufferedAmount %d', self._channel.bufferedAmount)
   var cb = self._cb
   self._cb = null
   cb(null)
@@ -767,7 +714,6 @@ Peer.prototype._onChannelBufferedAmountLow = function () {
 Peer.prototype._onChannelOpen = function () {
   var self = this
   if (self.connected || self.destroyed) return
-  self._debug('on channel open')
   self._channelReady = true
   self._maybeReady()
 }
@@ -775,7 +721,6 @@ Peer.prototype._onChannelOpen = function () {
 Peer.prototype._onChannelClose = function () {
   var self = this
   if (self.destroyed) return
-  self._debug('on channel close')
   self.destroy()
 }
 
@@ -784,7 +729,6 @@ Peer.prototype._onTrack = function (event) {
   if (self.destroyed) return
 
   event.streams.forEach(function (eventStream) {
-    self._debug('on track')
     self.emit('track', event.track, eventStream)
 
     self._remoteTracks.push({
@@ -801,13 +745,6 @@ Peer.prototype._onTrack = function (event) {
       self.emit('stream', eventStream) // ensure all tracks have been added
     }, 0)
   })
-}
-
-Peer.prototype._debug = function () {
-  var self = this
-  var args = [].slice.call(arguments)
-  args[0] = '[' + self._id + '] ' + args[0]
-  debug.apply(null, args)
 }
 
 // Transform constraints objects into the new format (unless Chromium)

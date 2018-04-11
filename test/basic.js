@@ -12,11 +12,6 @@ test('get config', function (t) {
   })
 })
 
-test('detect WebRTC support', function (t) {
-  t.equal(Peer.WEBRTC_SUPPORT, typeof window !== 'undefined', 'builtin webrtc support')
-  t.end()
-})
-
 test('create peer without options', function (t) {
   t.plan(1)
 
