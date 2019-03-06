@@ -286,7 +286,6 @@ Peer.prototype.addTrack = function (track, stream) {
 Peer.prototype.replaceTrack = async function (oldTrack, newTrack, stream) {
   var self = this
 
-  self._debug('replaceTrack()')
 
   var submap = self._senderMap.get(oldTrack)
   var sender = submap ? submap.get(stream) : null
@@ -467,7 +466,6 @@ Peer.prototype._setupData = function (event) {
 }
 
 Peer.prototype._startIceCompleteTimeout = function () {
-  debug('started iceComplete timeout')
   var self = this
   if (self.destroyed) return
   if (self._iceCompleteTimer) return
