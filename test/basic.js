@@ -12,11 +12,6 @@ test('get config', function (t) {
   })
 })
 
-test('detect WebRTC support', function (t) {
-  t.equal(Peer.WEBRTC_SUPPORT, typeof window !== 'undefined', 'builtin webrtc support')
-  t.end()
-})
-
 test('create peer without options', function (t) {
   t.plan(1)
 
@@ -82,7 +77,7 @@ test('signal event does not get emitted by non-initiator with stream', function 
 })
 
 test('data send/receive text', function (t) {
-  t.plan(10)
+  t.plan(8)
 
   var peer1 = new Peer({ config: config, initiator: true, wrtc: common.wrtc })
   var peer2 = new Peer({ config: config, wrtc: common.wrtc })
@@ -112,13 +107,11 @@ test('data send/receive text', function (t) {
 
     peer1.send('sup peer2')
     peer2.on('data', function (data) {
-      t.ok(Buffer.isBuffer(data), 'data is Buffer')
-      t.equal(data.toString(), 'sup peer2', 'got correct message')
+      t.equal(data, 'sup peer2', 'got correct message')
 
       peer2.send('sup peer1')
       peer1.on('data', function (data) {
-        t.ok(Buffer.isBuffer(data), 'data is Buffer')
-        t.equal(data.toString(), 'sup peer1', 'got correct message')
+        t.equal(data, 'sup peer1', 'got correct message')
 
         peer1.on('close', function () { t.pass('peer1 destroyed') })
         peer1.destroy()

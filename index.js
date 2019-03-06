@@ -1,16 +1,27 @@
 module.exports = Peer
 
-var debug = require('debug')('simple-peer')
-var getBrowserRTC = require('get-browser-rtc')
+var EventEmitter = require('eventemitter3')
 var inherits = require('inherits')
-var randombytes = require('randombytes')
-var stream = require('readable-stream')
+var randombytes = require('./lib/randombytes')
+var getBrowserRTC = require('get-browser-rtc');
 
 var MAX_BUFFERED_AMOUNT = 64 * 1024
 var ICECOMPLETE_TIMEOUT = 5 * 1000
 var CHANNEL_CLOSING_TIMEOUT = 5 * 1000
 
-inherits(Peer, stream.Duplex)
+inherits(Peer, EventEmitter)
+
+/**
+ * @param {Uint8Array} array
+ * @return {string}
+ */
+function array2hex (array) {
+  var string = ''
+  for (var i = 0; i < array.length; ++i) {
+    string += array[i].toString(16).padStart(2, '0')
+  }
+  return string
+}
 
 /**
  * WebRTC peer connection. Same API as node core `net.Socket`, plus a few extra methods.
@@ -21,17 +32,14 @@ function Peer (opts) {
   var self = this
   if (!(self instanceof Peer)) return new Peer(opts)
 
-  self._id = randombytes(4).toString('hex').slice(0, 7)
-  self._debug('new peer %o', opts)
-
   opts = Object.assign({
     allowHalfOpen: false
   }, opts)
 
-  stream.Duplex.call(self, opts)
+  EventEmitter.call(self)
 
   self.channelName = opts.initiator
-    ? opts.channelName || randombytes(20).toString('hex')
+    ? opts.channelName || array2hex(randombytes(20))
     : null
 
   // Needed by _transformConstraints, so set this early
@@ -69,7 +77,6 @@ function Peer (opts) {
     } else {
       throw makeError('No WebRTC support: Not a supported browser', 'ERR_WEBRTC_SUPPORT')
     }
-  }
 
   self._pcReady = false
   self._channelReady = false
@@ -150,12 +157,8 @@ function Peer (opts) {
   if (self.initiator) {
     self._needsNegotiation()
   }
-
-  self._onFinishBound = function () {
-    self._onFinish()
-  }
-  self.once('finish', self._onFinishBound)
 }
+
 
 Peer.WEBRTC_SUPPORT = !!getBrowserRTC()
 
@@ -199,10 +202,8 @@ Peer.prototype.signal = function (data) {
       data = {}
     }
   }
-  self._debug('signal()')
 
   if (data.renegotiate && self.initiator) {
-    self._debug('got request to renegotiate')
     self._needsNegotiation()
   }
   if (data.candidate) {
@@ -255,8 +256,6 @@ Peer.prototype.send = function (chunk) {
 Peer.prototype.addStream = function (stream) {
   var self = this
 
-  self._debug('addStream()')
-
   stream.getTracks().forEach(function (track) {
     self.addTrack(track, stream)
   })
@@ -269,8 +268,6 @@ Peer.prototype.addStream = function (stream) {
  */
 Peer.prototype.addTrack = function (track, stream) {
   var self = this
-
-  self._debug('addTrack()')
 
   var sender = self._pc.addTrack(track, stream)
   var submap = self._senderMap.get(track) || new Map() // nested Maps map [track, stream] to sender
@@ -312,8 +309,6 @@ Peer.prototype.replaceTrack = async function (oldTrack, newTrack, stream) {
 Peer.prototype.removeTrack = function (track, stream) {
   var self = this
 
-  self._debug('removeSender()')
-
   var submap = self._senderMap.get(track)
   var sender = submap ? submap.get(stream) : null
   if (!sender) {
@@ -337,8 +332,6 @@ Peer.prototype.removeTrack = function (track, stream) {
 Peer.prototype.removeStream = function (stream) {
   var self = this
 
-  self._debug('removeSenders()')
-
   stream.getTracks().forEach(function (track) {
     self.removeTrack(track, stream)
   })
@@ -347,12 +340,10 @@ Peer.prototype.removeStream = function (stream) {
 Peer.prototype._needsNegotiation = function () {
   var self = this
 
-  self._debug('_needsNegotiation')
   if (self._batchedNegotiation) return // batch synchronous renegotiations
   self._batchedNegotiation = true
   setTimeout(function () {
     self._batchedNegotiation = false
-    self._debug('starting batched negotiation')
     self.negotiate()
   }, 0)
 }
@@ -363,14 +354,11 @@ Peer.prototype.negotiate = function () {
   if (self.initiator) {
     if (self._isNegotiating) {
       self._queuedNegotiation = true
-      self._debug('already negotiating, queueing')
     } else {
-      self._debug('start negotiation')
       self._createOffer()
     }
   } else {
     if (!self._isNegotiating) {
-      self._debug('requesting negotiation from initiator')
       self.emit('signal', { // request initiator to renegotiate
         renegotiate: true
       })
@@ -379,24 +367,9 @@ Peer.prototype.negotiate = function () {
   self._isNegotiating = true
 }
 
-// TODO: Delete this method once readable-stream is updated to contain a default
-// implementation of destroy() that automatically calls _destroy()
-// See: https://github.com/nodejs/readable-stream/issues/283
 Peer.prototype.destroy = function (err) {
   var self = this
-  self._destroy(err, function () {})
-}
-
-Peer.prototype._destroy = function (err, cb) {
-  var self = this
   if (self.destroyed) return
-
-  self._debug('destroy (error: %s)', err && (err.message || err))
-
-  self.readable = self.writable = false
-
-  if (!self._readableState.ended) self.push(null)
-  if (!self._writableState.finished) self.end()
 
   self.destroyed = true
   self.connected = false
@@ -413,9 +386,6 @@ Peer.prototype._destroy = function (err, cb) {
   self._interval = null
   self._chunk = null
   self._cb = null
-
-  if (self._onFinishBound) self.removeListener('finish', self._onFinishBound)
-  self._onFinishBound = null
 
   if (self._channel) {
     try {
@@ -446,7 +416,6 @@ Peer.prototype._destroy = function (err, cb) {
 
   if (err) self.emit('error', err)
   self.emit('close')
-  cb()
 }
 
 Peer.prototype._setupData = function (event) {
@@ -496,52 +465,6 @@ Peer.prototype._setupData = function (event) {
   }, CHANNEL_CLOSING_TIMEOUT)
 }
 
-Peer.prototype._read = function () {}
-
-Peer.prototype._write = function (chunk, encoding, cb) {
-  var self = this
-  if (self.destroyed) return cb(makeError('cannot write after peer is destroyed', 'ERR_DATA_CHANNEL'))
-
-  if (self.connected) {
-    try {
-      self.send(chunk)
-    } catch (err) {
-      return self.destroy(makeError(err, 'ERR_DATA_CHANNEL'))
-    }
-    if (self._channel.bufferedAmount > MAX_BUFFERED_AMOUNT) {
-      self._debug('start backpressure: bufferedAmount %d', self._channel.bufferedAmount)
-      self._cb = cb
-    } else {
-      cb(null)
-    }
-  } else {
-    self._debug('write before connect')
-    self._chunk = chunk
-    self._cb = cb
-  }
-}
-
-// When stream finishes writing, close socket. Half open connections are not
-// supported.
-Peer.prototype._onFinish = function () {
-  var self = this
-  if (self.destroyed) return
-
-  if (self.connected) {
-    destroySoon()
-  } else {
-    self.once('connect', destroySoon)
-  }
-
-  // Wait a bit before destroying so the socket flushes.
-  // TODO: is there a more reliable way to accomplish this?
-  function destroySoon () {
-    setTimeout(function () {
-      self.destroy()
-    }, 1000)
-  }
-}
-
 Peer.prototype._startIceCompleteTimeout = function () {
   debug('started iceComplete timeout')
   var self = this
@@ -567,7 +490,6 @@ Peer.prototype._createOffer = function () {
     self._pc.setLocalDescription(offer).then(onSuccess).catch(onError)
 
     function onSuccess () {
-      self._debug('createOffer success')
       if (self.destroyed) return
       if (self.trickle || self._iceComplete) sendOffer()
       else self.once('_iceComplete', sendOffer) // wait for candidates
@@ -580,7 +502,6 @@ Peer.prototype._createOffer = function () {
     function sendOffer () {
       if (self.destroyed) return
       var signal = self._pc.localDescription || offer
-      self._debug('signal')
       self.emit('signal', {
         type: signal.type,
         sdp: signal.sdp
@@ -612,7 +533,6 @@ Peer.prototype._createAnswer = function () {
     function sendAnswer () {
       if (self.destroyed) return
       var signal = self._pc.localDescription || answer
-      self._debug('signal')
       self.emit('signal', {
         type: signal.type,
         sdp: signal.sdp
@@ -627,11 +547,6 @@ Peer.prototype._onIceStateChange = function () {
   var iceConnectionState = self._pc.iceConnectionState
   var iceGatheringState = self._pc.iceGatheringState
 
-  self._debug(
-    'iceStateChange (connection: %s) (gathering: %s)',
-    iceConnectionState,
-    iceGatheringState
-  )
   self.emit('iceStateChange', iceConnectionState, iceGatheringState)
 
   if (iceConnectionState === 'connected' || iceConnectionState === 'completed') {
@@ -698,7 +613,6 @@ Peer.prototype.getStats = function (cb) {
 
 Peer.prototype._maybeReady = function () {
   var self = this
-  self._debug('maybeReady pc %s channel %s', self._pcReady, self._channelReady)
   if (self.connected || self._connecting || !self._pcReady || !self._channelReady) return
 
   self._connecting = true
@@ -785,11 +699,6 @@ Peer.prototype._maybeReady = function () {
           self.remotePort = Number(remote[1])
         }
         self.remoteFamily = self.remoteAddress.includes(':') ? 'IPv6' : 'IPv4'
-
-        self._debug(
-          'connect local: %s:%s remote: %s:%s',
-          self.localAddress, self.localPort, self.remoteAddress, self.remotePort
-        )
       }
 
       // Ignore candidate pair selection in browsers like Safari 11 that do not have any local or remote candidates
@@ -809,7 +718,6 @@ Peer.prototype._maybeReady = function () {
           return self.destroy(makeError(err, 'ERR_DATA_CHANNEL'))
         }
         self._chunk = null
-        self._debug('sent chunk from "write before connect"')
 
         var cb = self._cb
         self._cb = null
@@ -823,7 +731,6 @@ Peer.prototype._maybeReady = function () {
         if (self._interval.unref) self._interval.unref()
       }
 
-      self._debug('connect')
       self.emit('connect')
     })
   }
@@ -846,7 +753,6 @@ Peer.prototype._onSignalingStateChange = function () {
     self._isNegotiating = false
 
     // HACK: Firefox doesn't yet support removing tracks when signalingState !== 'stable'
-    self._debug('flushing sender queue', self._sendersAwaitingStable)
     self._sendersAwaitingStable.forEach(function (sender) {
       self._pc.removeTrack(sender)
       self._queuedNegotiation = true
@@ -854,17 +760,14 @@ Peer.prototype._onSignalingStateChange = function () {
     self._sendersAwaitingStable = []
 
     if (self._queuedNegotiation) {
-      self._debug('flushing negotiation queue')
       self._queuedNegotiation = false
       self._needsNegotiation() // negotiate again
     }
 
-    self._debug('negotiate')
     self.emit('negotiate')
   }
   self._firstStable = false
 
-  self._debug('signalingStateChange %s', self._pc.signalingState)
   self.emit('signalingStateChange', self._pc.signalingState)
 }
 
@@ -893,14 +796,13 @@ Peer.prototype._onChannelMessage = function (event) {
   var self = this
   if (self.destroyed) return
   var data = event.data
-  if (data instanceof ArrayBuffer) data = Buffer.from(data)
-  self.push(data)
+  if (data instanceof ArrayBuffer) data = new Uint8Array(data)
+  self.emit('data', data)
 }
 
 Peer.prototype._onChannelBufferedAmountLow = function () {
   var self = this
   if (self.destroyed || !self._cb) return
-  self._debug('ending backpressure: bufferedAmount %d', self._channel.bufferedAmount)
   var cb = self._cb
   self._cb = null
   cb(null)
@@ -909,7 +811,6 @@ Peer.prototype._onChannelBufferedAmountLow = function () {
 Peer.prototype._onChannelOpen = function () {
   var self = this
   if (self.connected || self.destroyed) return
-  self._debug('on channel open')
   self._channelReady = true
   self._maybeReady()
 }
@@ -917,7 +818,6 @@ Peer.prototype._onChannelOpen = function () {
 Peer.prototype._onChannelClose = function () {
   var self = this
   if (self.destroyed) return
-  self._debug('on channel close')
   self.destroy()
 }
 
@@ -926,7 +826,6 @@ Peer.prototype._onTrack = function (event) {
   if (self.destroyed) return
 
   event.streams.forEach(function (eventStream) {
-    self._debug('on track')
     self.emit('track', event.track, eventStream)
 
     self._remoteTracks.push({
@@ -952,13 +851,6 @@ Peer.prototype.setConstraints = function (constraints) {
   } else {
     self.answerConstraints = self._transformConstraints(constraints)
   }
-}
-
-Peer.prototype._debug = function () {
-  var self = this
-  var args = [].slice.call(arguments)
-  args[0] = '[' + self._id + '] ' + args[0]
-  debug.apply(null, args)
 }
 
 // Transform constraints objects into the new format (unless Chromium)
