@@ -77,6 +77,7 @@ function Peer (opts) {
     } else {
       throw makeError('No WebRTC support: Not a supported browser', 'ERR_WEBRTC_SUPPORT')
     }
+  }
 
   self._pcReady = false
   self._channelReady = false
