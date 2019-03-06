@@ -1,5 +1,5 @@
 {
-  "name": "heks/simple-peer",
+  "name": "@heks/simple-peer",
   "description": "Simple one-to-one WebRTC video/voice and data channels",
   "version": "9.2.0",
   "author": {
