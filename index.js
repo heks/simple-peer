@@ -1,3 +1,4 @@
+/* eslint-disable */
 module.exports = Peer
 
 var EventEmitter = require('eventemitter3')
@@ -564,26 +565,16 @@ Peer.prototype.getStats = function (cb) {
   var self = this
 
   // Promise-based getStats() (standard)
-  if (self._pc.getStats.length === 0) {
+  if (self._pc.getStats.length === 0 || self._isReactNativeWebrtc) {
     self._pc.getStats().then(function (res) {
       var reports = []
       res.forEach(function (report) {
-        reports.push(report)
+        reports.push(flattenValues(report))
       })
       cb(null, reports)
     }, function (err) { cb(err) })
 
   // Two-parameter callback-based getStats() (deprecated, former standard)
-  } else if (self._isReactNativeWebrtc) {
-    self._pc.getStats(null, function (res) {
-      var reports = []
-      res.forEach(function (report) {
-        reports.push(report)
-      })
-      cb(null, reports)
-    }, function (err) { cb(err) })
-
-  // Single-parameter callback-based getStats() (non-standard)
   } else if (self._pc.getStats.length > 0) {
     self._pc.getStats(function (res) {
       // If we destroy connection in `connect` callback this code might happen to run when actual connection is already closed
@@ -598,16 +589,25 @@ Peer.prototype.getStats = function (cb) {
         report.id = result.id
         report.type = result.type
         report.timestamp = result.timestamp
-        reports.push(report)
+        reports.push(flattenValues(report))
       })
       cb(null, reports)
-    }, function (err) { cb(err) })
+    }, function (err) { cb(err); })
 
   // Unknown browser, skip getStats() since it's anyone's guess which style of
   // getStats() they implement.
   } else {
     cb(null, [])
   }
+}
+
+function flattenValues (report) {
+  if (Object.prototype.toString.call(report.values) === '[object Array]') {
+    report.values.forEach(function (value) {
+      Object.assign(report, value)
+    })
+  }
+  return report
 }
 
 Peer.prototype._maybeReady = function () {
