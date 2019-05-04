@@ -177,7 +177,8 @@ Peer.config = {
     {
       urls: 'stun:global.stun.twilio.com:3478?transport=udp'
     }
-  ]
+  ],
+  sdpSemantics: 'unified-plan'
 }
 Peer.constraints = {}
 Peer.channelConfig = {}
@@ -209,8 +210,11 @@ Peer.prototype.signal = function (data) {
     self._needsNegotiation()
   }
   if (data.candidate) {
-    if (self._pc.remoteDescription && self._pc.remoteDescription.type) self._addIceCandidate(data.candidate)
-    else self._pendingCandidates.push(data.candidate)
+    if (self._pc.localDescription && self._pc.localDescription.type && self._pc.remoteDescription && self._pc.remoteDescription.type) {
+      self._addIceCandidate(data.candidate)
+    } else {
+      self._pendingCandidates.push(data.candidate)
+    }
   }
   if (data.sdp) {
     self._pc.setRemoteDescription(new (self._wrtc.RTCSessionDescription)(data)).then(function () {
@@ -476,7 +480,7 @@ Peer.prototype._startIceCompleteTimeout = function () {
       self.emit('iceTimeout')
       self.emit('_iceComplete')
     }
-  }, this.iceCompleteTimeout)
+  }, self.iceCompleteTimeout)
 }
 
 Peer.prototype._createOffer = function () {
@@ -679,7 +683,9 @@ Peer.prototype._maybeReady = function () {
           self.localAddress = local[0]
           self.localPort = Number(local[1])
         }
-        self.localFamily = self.localAddress.includes(':') ? 'IPv6' : 'IPv4'
+        if (self.localAddress) {
+          self.localFamily = self.localAddress.includes(':') ? 'IPv6' : 'IPv4'
+        }
 
         var remote = remoteCandidates[selectedCandidatePair.remoteCandidateId]
 
@@ -697,7 +703,9 @@ Peer.prototype._maybeReady = function () {
           self.remoteAddress = remote[0]
           self.remotePort = Number(remote[1])
         }
-        self.remoteFamily = self.remoteAddress.includes(':') ? 'IPv6' : 'IPv4'
+        if (self.remoteAddress) {
+          self.remoteFamily = self.remoteAddress.includes(':') ? 'IPv6' : 'IPv4'
+        }
       }
 
       // Ignore candidate pair selection in browsers like Safari 11 that do not have any local or remote candidates
